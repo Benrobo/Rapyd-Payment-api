@@ -21,8 +21,20 @@ const {
 } = require("../config/rapydEndpoints");
 
 const { convertCurrency } = require("../services");
-
+const { sendMail } = require("../services/mailer");
 class WalletController {
+    async #recalculateTransaction(paymentLinkId, tranId, transactions) {
+        let amount = 0;
+        transactions.forEach(function (transaction) {
+            amount += transaction.amount;
+        });
+
+        await Transactions.updateOne(
+            { id: tranId, linkId: paymentLinkId },
+            { paid: amount }
+        );
+    }
+
     async addFund(res, payload) {
         try {
             let result = await Fetch(
@@ -59,8 +71,15 @@ class WalletController {
 
         if (wId) {
             try {
-                let result = await Fetch("POST", "/v1/account/withdraw", payload);
-                let message = result.statusCode == 200 ? "Funds withdraw successfull" : "Failed to withdraw fund.";
+                let result = await Fetch(
+                    "POST",
+                    "/v1/account/withdraw",
+                    payload
+                );
+                let message =
+                    result.statusCode == 200
+                        ? "Funds withdraw successfull"
+                        : "Failed to withdraw fund.";
                 let status = result.statusCode == 200 ? true : false;
                 sendResponse(
                     res,
@@ -69,10 +88,14 @@ class WalletController {
                     message,
                     result.body.data
                 );
-            }
-            catch (e) {
+            } catch (e) {
                 console.log(e);
-                sendResponse(res, 500, false, "An Error occured while withdrawing.");
+                sendResponse(
+                    res,
+                    500,
+                    false,
+                    "An Error occured while withdrawing."
+                );
             }
         } else {
             sendResponse(res, 400, false, "Error Getting Ewallet", {});
@@ -154,12 +177,11 @@ class WalletController {
             delete payload.name;
             delete payload.email;
 
-
             // Check if there is already a transaction stored
             if (paymentCookie !== "") {
                 // Check if Transaction Exists in our DB
                 const checkTransaction = await Transactions.findOne({
-                    id: paymentCookie
+                    id: paymentCookie,
                 });
 
                 if (checkTransaction) {
@@ -174,6 +196,16 @@ class WalletController {
                             ? "Vitual Account Retrieved"
                             : "Failed To Retrieve Vitual Account";
                     let status = result.statusCode == 200 ? true : false;
+
+                    // Add Payment Amount
+                    result.body.data.amount = paymentPrice;
+
+                    // Recalculate and Update Transaction Table
+                    // this.#recalculateTransaction(
+                    //     paymentLinkId,
+                    //     paymentCookie,
+                    //     result.body.data.transactions
+                    // );
 
                     if (status) {
                         return sendResponse(
@@ -270,18 +302,24 @@ class WalletController {
                     e.body
                 );
             }
-        } catch (e) { }
+        } catch (e) {}
     }
 
     async getWallet(res, id) {
         // check if users exists first
         const userId = res.user.id;
 
-        if (id !== userId) return sendResponse(res, 404, false, "failed to retrieve wallet: user not found.")
+        if (id !== userId)
+            return sendResponse(
+                res,
+                404,
+                false,
+                "failed to retrieve wallet: user not found."
+            );
 
         const getUser = await Wallets.findOne({ userId: id });
 
-        const getUserInfo = await User.findOne({ id: userId })
+        const getUserInfo = await User.findOne({ id: userId });
 
         if (getUser) {
             id = getUser.wId;
@@ -404,6 +442,10 @@ class WalletController {
             if (getTransaction) {
                 const paid = Number(getTransaction.paid);
                 const total = Number(getTransaction.totalAmount);
+                const name = getTransaction.name;
+                const email = getTransaction.email;
+                const currency = getTransaction.currency;
+                const linkId = getTransaction.linkId;
 
                 const amount = Number(payload.data.amount);
 
@@ -418,6 +460,33 @@ class WalletController {
                             status: "Paid",
                         }
                     );
+
+                    // Send Email
+                    if (newPaid > total) {
+                        sendMail(
+                            name,
+                            email,
+                            "Payment Received",
+                            `
+                        We have received your payment of ${paid} ${currency},<br>
+                        You have now completed your payment of  ${newPaid} ${currency},<br>
+                        Use the link below to get a refund of your over payment of ${newPaid -total} ${currency}.<br>
+                        <a href="#">Refund Link</a>
+                        Thanks for using RayPal.
+                    `
+                        );
+                    } else {
+                        sendMail(
+                            name,
+                            email,
+                            "Payment Received",
+                            `
+                        We have received your payment of ${paid} ${currency},<br>
+                        You have now completed your payment of  ${newPaid} ${currency}.
+                        Thanks for using RayPal.
+                    `
+                        );
+                    }
                 } else {
                     await Transactions.updateOne(
                         { id: accountId },
@@ -425,6 +494,23 @@ class WalletController {
                             paid: newPaid,
                             status: "Updated",
                         }
+                    );
+
+                    // Send Mail
+
+                    const paymentLink = `https://raypal.finance/payment/link/${linkId}?accountId=${accountId}`
+
+                    sendMail(
+                        name,
+                        email,
+                        "Payment Received",
+                        `
+                    We have received your payment of ${paid} ${currency},<br>
+                    You have now made a total payment of  ${newPaid} ${currency} and Still have ${total - newPaid} ${currency}.<br>
+                    Click on the link below to complete your payment anytime you want.<br>
+                    <a href="">Complete Payment</a><br>
+                    Thanks for using RayPal.<br>
+                `
                     );
                 }
             }
