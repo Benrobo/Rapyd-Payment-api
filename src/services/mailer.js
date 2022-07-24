@@ -1,13 +1,17 @@
 const mailer = require("nodemailer");
 const fs = require("fs");
+require("dotenv").config({ path: "./.env" })
+
+const mailUser = process.env.MAIL_USER;
+const mailPass = process.env.MAIL_PASS;
 
 let transporter = mailer.createTransport({
     host: "vmi807529.contaboserver.net",
     port: 25,
     secure: false, // true for 465, false for other ports
     auth: {
-        user: "info@raypal.finance", // generated ethereal user
-        pass: "brI1HEw4EnJI", // generated ethereal password
+        user: mailUser, // generated ethereal user
+        pass: mailPass, // generated ethereal password
     },
     tls: {
         rejectUnauthorized: false,
@@ -36,14 +40,6 @@ async function sendMail(name, email, title, message) {
         subject: title, // Subject line
         html: makeTemplate(name, email, title, message), // html body
     });
-    console.log(info);
 }
-
-sendMail(
-    "Dev Bash",
-    "nilujef.duhimog@vintomaper.com",
-    "Testing",
-    "Hello World!"
-);
 
 module.exports = { sendMail };
