@@ -1,24 +1,18 @@
-const https = require("https");
+const axios = require("axios");
 
 async function convertCurrency(from, to, amount) {
     // const httpURLPath = `/exchangerates_data/convert?to=${to}&from=${from}&amount=${amount}`;
     const apiKey = "d634d0f003634016b06f6a739bdf0156";
     const httpURLPath = `https://exchange-rates.abstractapi.com/v1/convert?api_key=${apiKey}&target=${to}&base=${from}&base_amount=${amount}`;
-    const options = {
-        method: "GET",
-        headers: {
-            "Content-Type": "application/json",
-        },
-    };
-
+    
     try {
-        const result = await fetch(httpURLPath, options);
-        const data = await result.json();
-        const amount = Math.floor(data.converted_amount);
+        const data = await axios.get(httpURLPath);
+        // console.log(data.data);
+        const amount = Math.floor(data.data.converted_amount);
         return String(amount);
     } catch (error) {
         console.log(error);
-        return null;
+        return String(amount);
     }
 }
 
