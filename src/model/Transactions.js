@@ -8,6 +8,7 @@ const transactionSchema = new Schema(
         paid: { type: String },
         totalAmount: { type: String },
         currency: { type: String },
+        country: { type: String },
         name: { type: String },
         email: { type: String },
         iban: { type: String },

@@ -5,6 +5,7 @@ const {
     Transactions,
     Products,
     PaymentLinks,
+    Refund,
 } = require("../model");
 const { genHash, compareHash, genId, genUnique } = require("../helpers");
 const sendResponse = require("../helpers/response");
@@ -52,13 +53,8 @@ class WalletController {
                 result.body.data
             );
         } catch (e) {
-            sendResponse(
-                res,
-                500,
-                false,
-                `Error: ${e.body.status.message}`,
-                e.body
-            );
+            console.log(e);
+            sendResponse(res, 500, false, `Something Went Wrong`, e.body);
         }
     }
 
@@ -110,6 +106,7 @@ class WalletController {
         try {
             // Verify Payment Link and Get Price
             let paymentPrice;
+            let country;
             let userId = null;
             let currency = "USD"; // Default
 
@@ -153,6 +150,7 @@ class WalletController {
                         ? payLink.title
                         : payload.description;
                 payload.ewallet = payLink.wId;
+                country = payload.country || "US";
             } catch (e) {
                 return sendResponse(
                     res,
@@ -170,7 +168,10 @@ class WalletController {
                 return sendResponse(res, 500, false, "Wallet Id Not Found", {});
             }
 
-            const name = payload?.name || "";
+            const name =
+                (payload?.first_name || " ") +
+                " " +
+                (payload?.last_name || " ");
             const email = payload?.email || "";
 
             // Delete name and email From Object
@@ -254,6 +255,7 @@ class WalletController {
                             userId,
                             linkId: paymentLinkId,
                             currency,
+                            country,
                             name,
                             email,
                             paid: 0,
@@ -446,6 +448,8 @@ class WalletController {
                 const email = getTransaction.email;
                 const currency = getTransaction.currency;
                 const linkId = getTransaction.linkId;
+                const sellerId = getTransaction.userId;
+                const country = getTransaction.country;
 
                 const amount = Number(payload.data.amount);
 
@@ -457,32 +461,102 @@ class WalletController {
                         { id: accountId },
                         {
                             paid: newPaid,
-                            status: "Paid",
+                            status: "Completed",
                         }
                     );
 
+                    // console.log(getTransaction);
+
                     // Send Email
                     if (newPaid > total) {
-                        sendMail(
-                            name,
-                            email,
-                            "Payment Received",
-                            `
-                        We have received your payment of ${paid} ${currency},<br>
-                        You have now completed your payment of  ${newPaid} ${currency},<br>
-                        Use the link below to get a refund of your over payment of ${newPaid -total} ${currency}.<br>
-                        <a href="#">Refund Link</a>
-                        Thanks for using RayPal.
-                    `
-                        );
+                        // Create Payout Link
+
+                        const seller = await User.findOne({ id: sellerId });
+                        const sellerCountry = seller.country;
+                        const logo = "https://raypal.finance/favicon.ico";
+                        const website = "https://raypal.finance";
+
+                        try {
+                            const merchantId = genUnique();
+                            const payload = {
+                                category: "bank",
+                                sender_entity_type: "individual",
+                                sender_country: sellerCountry,
+                                merchant_reference_id: merchantId,
+                                beneficiary_country: country,
+                                beneficiary_entity_type: "individual",
+                                payout_currency: currency,
+                                payment_type: "priority",
+                                merchant_color: "black",
+                                merchant_logo: logo,
+                                merchant_alias: "RayPal",
+                                merchant_website: website,
+                                merchant_customer_support:
+                                    "info@raypal.finance",
+                                beneficiary_optional_fields: {
+                                    last_name: name.split(" ")[0] || "",
+                                    first_name: name.split(" ")[1] || "",
+                                    payment_type: "priority",
+                                },
+                            };
+                            const result = await Fetch(
+                                "POST",
+                                "/v1/hosted/disburse/beneficiary",
+                                payload
+                            );
+                            console.log(result.body);
+
+                            const payout =
+                                result.body.data.default_payout_method_type;
+
+                            // Store Refund Data
+                            await Refund.create({
+                                tranId: accountId,
+                                merchantId,
+                                payout,
+                            });
+
+                            const refundLink = result.body.data.redirect_url;
+
+                            sendMail(
+                                name,
+                                email,
+                                "Payment Received",
+                                `
+                            We have received your payment of <b>${amount} ${currency}</b>,<br>
+                            You have now completed your payment of <b>${total} ${currency}</b>,<br>
+                            You have made a total payment of <b>${newPaid} ${currency}</b>.<br>
+                            Use the link below to get a refund of your over payment of <b>${
+                                newPaid - total
+                            } ${currency}</b>.<br>
+                            <a href="${refundLink}">${refundLink}</a><br>
+                            Thanks for using RayPal.
+                        `
+                            );
+                        } catch (e) {
+                            sendMail(
+                                name,
+                                email,
+                                "Payment Received",
+                                `
+                            We have received your payment of <b>${amount} ${currency}</b>,<br>
+                            You have now completed your payment of <b>${total} ${currency}</b>,<br>
+                            Contact The Merchant to get a refund of <b>${
+                                newPaid - total
+                            } ${currency}</b>.<br>
+                            Thanks for using RayPal.
+                        `
+                            );
+                            console.log(e);
+                        }
                     } else {
                         sendMail(
                             name,
                             email,
                             "Payment Received",
                             `
-                        We have received your payment of ${paid} ${currency},<br>
-                        You have now completed your payment of  ${newPaid} ${currency}.
+                        We have received your payment of <b>${amount} ${currency}</b>,<br>
+                        You have now completed your payment of <b>${total} ${currency}</b>.<br>
                         Thanks for using RayPal.
                     `
                         );
@@ -498,22 +572,117 @@ class WalletController {
 
                     // Send Mail
 
-                    const paymentLink = `https://raypal.finance/payment/link/${linkId}?accountId=${accountId}`
+                    const paymentLink = `https://raypal.finance/payment/link/${linkId}?accountId=${accountId}`;
 
                     sendMail(
                         name,
                         email,
                         "Payment Received",
                         `
-                    We have received your payment of ${paid} ${currency},<br>
-                    You have now made a total payment of  ${newPaid} ${currency} and Still have ${total - newPaid} ${currency}.<br>
+                    We have received your payment of <b>${amount} ${currency}</b>,<br>
+                    You have now made a total payment of  <b>${newPaid} ${currency}</b> and Still have <b>${
+                            total - newPaid
+                        } ${currency}</b> Remaining.<br>
                     Click on the link below to complete your payment anytime you want.<br>
-                    <a href="">Complete Payment</a><br>
+                    <a href="${paymentLink}">${paymentLink}</a><br>
                     Thanks for using RayPal.<br>
                 `
                     );
                 }
             }
+        } else if (
+            payload.type === "BENEFICIARY_CREATED" &&
+            payload.status === "NEW"
+        ) {
+            const beneficiaryId = payload.data.id;
+            const merchantId = payload.data.merchant_reference_id;
+            let { tranId, payout } = await Refund.findOne({
+                merchantId,
+            });
+            const { userId, paid, totalAmount, currency, country } =
+                await Transactions.findOne({
+                    id: tranId,
+                });
+            const { currency: sellerCurrency, country: sellerCountry } =
+                await User.findOne({
+                    id: userId,
+                });
+            const { wId } = await Wallets.findOne({
+                userId,
+            });
+
+            try {
+                // Create Sender
+                const senderPayload = {
+                    country: sellerCountry,
+                    currency: sellerCurrency,
+                    entity_type: "company",
+                    company_name: "RayPal",
+                    payment_type: "priority",
+                    identification_type: "company registered number",
+                    identification_value: "10207686",
+                    // phone_number: "442037443095",
+                    occupation: "transportation",
+                    source_of_income: "business",
+                    // date_of_birth: "31/07/1984",
+                    // address: "123 Main Street London",
+                    purpose_code: "refund",
+                    beneficiary_relationship: "client",
+                };
+                const result = await Fetch(
+                    "POST",
+                    "/v1/payouts/sender",
+                    senderPayload
+                );
+                const senderId = result.body.data.id;
+                const refundAmount = Number(paid) - Number(totalAmount);
+                payout = payout || "us_general_bank";
+                console.log(payout);
+
+                // Create Payout
+                const payoutPayload = {
+                    ewallet: wId,
+                    payout_amount: refundAmount,
+                    // payout_method_type: payout,
+                    sender_currency: sellerCurrency,
+                    sender_country: sellerCountry,
+                    beneficiary_country: country,
+                    payout_currency: currency,
+                    sender_entity_type: "company",
+                    payment_type: "priority",
+                    beneficiary_entity_type: "individual",
+                    beneficiary: beneficiaryId,
+                    sender: senderId,
+                    confirm_automatically: true,
+                    description: "Refund from RayPal",
+                };
+                const res = await Fetch("POST", "/v1/payouts", payoutPayload);
+                console.log(res);
+            } catch (e) {
+                console.log(e);
+            }
+        } else if (
+            payload.type === "PAYOUT_FAILED" &&
+            payload.status === "NEW"
+        ) {
+            const merchantId = payload.data.beneficiary.merchant_reference_id;
+            let { tranId } = await Refund.findOne({
+                merchantId,
+            });
+            const { name, email, paid, totalAmount, currency } =
+                await Transactions.findOne({
+                    id: tranId,
+                });
+            sendMail(
+                name,
+                email,
+                "Refund Failed",
+                `
+                Your Refund Request of <b>${paid - totalAmount} ${currency}</b> has failed.<br>
+                Contact The merchant to get your refund manually.<br>
+                Thanks for using RayPal.<br>
+            `
+            );
         }
 
         sendResponse(res, 200, true, "Webhook Endpoint", {});

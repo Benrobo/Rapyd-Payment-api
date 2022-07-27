@@ -1,6 +1,6 @@
 const mailer = require("nodemailer");
 const fs = require("fs");
-require("dotenv").config({ path: "./.env" })
+require("dotenv").config({ path: "./.env" });
 
 const mailUser = process.env.MAIL_USER;
 const mailPass = process.env.MAIL_PASS;
@@ -20,11 +20,13 @@ let transporter = mailer.createTransport({
 
 const COMPANY = "RayPal";
 const URL = "https://raypal.finance";
+const LOGO = "https://raypal.finance/favicon.ico";
 
 function makeTemplate(name, email, title, message) {
     let mail = fs.readFileSync(__dirname + "/welcome.html", "utf-8");
     return mail
         .replaceAll("{{company}}", COMPANY)
+        .replaceAll("{{logo}}", LOGO)
         .replaceAll("{{url}}", URL)
         .replaceAll("{{name}}", name)
         .replaceAll("{{email}}", email)
@@ -40,6 +42,7 @@ async function sendMail(name, email, title, message) {
         subject: title, // Subject line
         html: makeTemplate(name, email, title, message), // html body
     });
+    console.log(info);
 }
 
 module.exports = { sendMail };

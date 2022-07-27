@@ -1,36 +1,33 @@
 const https = require("https");
 
 async function convertCurrency(from, to, amount) {
-    const httpURLPath = `/exchangerates_data/convert?to=${to}&from=${from}&amount=${amount}`;
+    // const httpURLPath = `/exchangerates_data/convert?to=${to}&from=${from}&amount=${amount}`;
+    const apiKey = "d634d0f003634016b06f6a739bdf0156";
+    const httpURLPath = `https://exchange-rates.abstractapi.com/v1/convert?api_key=${apiKey}&target=${to}&base=${from}&base_amount=${amount}`;
     const options = {
-        hostname: "api.apilayer.com",
-        port: 443,
-        path: httpURLPath,
         method: "GET",
         headers: {
             "Content-Type": "application/json",
-            apikey: "xst3wL4iJdZv1Tu1XPvtWrh6FYWbXrTm",
         },
     };
 
     try {
-        const result = await httpRequest(options)
-        return String(result.body.result);
+        const result = await fetch(httpURLPath, options);
+        const data = await result.json();
+        const amount = Math.floor(data.converted_amount);
+        return String(amount);
     } catch (error) {
+        console.log(error);
         return null;
     }
 }
 
-function httpRequest(options, body) {
+
+function httpRequest(url, options) {
     return new Promise((resolve, reject) => {
         try {
-            let bodyString = "";
-            if (body) {
-                bodyString = JSON.stringify(body);
-                bodyString = bodyString == "{}" ? "" : bodyString;
-            }
 
-            const req = https.request(options, (res) => {
+            const req = https.request(url, options, (res) => {
                 let response = {
                     statusCode: res.statusCode,
                     headers: res.headers,
@@ -57,7 +54,7 @@ function httpRequest(options, body) {
                 return reject(error);
             });
 
-            req.write(bodyString);
+            // req.write(response.body);
             req.end();
         } catch (err) {
             return reject(err);

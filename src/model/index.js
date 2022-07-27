@@ -9,6 +9,7 @@ const Transactions = require("./Transactions")
 const PaymentLinks = require("./PaymentLinks")
 const Accounts = require("./Accounts")
 const Products = require("./Products")
+const Refund = require("./Refund")
 
 
 module.exports = {
@@ -17,5 +18,6 @@ module.exports = {
     Transactions,
     PaymentLinks,
     Accounts,
-    Products
+    Products,
+    Refund
 }
